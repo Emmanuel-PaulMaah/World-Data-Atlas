@@ -1,0 +1,592 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>World Data Atlas</title>
+  <!-- Tailwind CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Leaflet CSS/JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="" crossorigin=""/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    /* small tweaks */
+    #map { height: 420px; }
+    .flag { width: 64px; height: 40px; object-fit: cover; border-radius: 4px; }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-900">
+  <header class="bg-gradient-to-r from-indigo-600 to-indigo-500 text-white p-6">
+    <div class="max-w-6xl mx-auto flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div>
+        <h1 class="text-2xl md:text-3xl font-bold">World Data Atlas</h1>
+        <p class="text-indigo-200 mt-1">Interactive country data — live from REST Countries & World Bank.</p>
+      </div>
+
+      <div class="flex flex-col sm:flex-row sm:items-center gap-3 w-full sm:w-auto">
+        <input id="search" placeholder="Search country (e.g., Ghana or GH)" class="p-2 rounded w-full sm:w-64 text-black" />
+        <select id="country-select" class="p-2 rounded text-black w-full sm:w-72"></select>
+        <button id="compare-toggle" class="px-3 py-2 bg-indigo-700 rounded text-white">Compare</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <!-- Map / Controls -->
+    <section class="col-span-1 lg:col-span-2 space-y-4">
+      <div id="map" class="rounded shadow"></div>
+
+      <div class="bg-white p-4 rounded-lg shadow">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 id="panel-country" class="text-xl font-semibold">Select a country</h2>
+            <p id="panel-sub" class="text-gray-600 text-sm">Click a marker or choose a country from the dropdown.</p>
+          </div>
+          <div class="text-right">
+            <div id="last-updated" class="text-xs text-gray-500"></div>
+            <div class="text-xs text-gray-500">Data: REST Countries & World Bank</div>
+          </div>
+        </div>
+
+        <div id="country-card" class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
+          <div class="md:col-span-1 flex items-center gap-3">
+            <img id="flag" class="flag hidden" alt="flag"/>
+            <div>
+              <div id="country-name" class="font-semibold"></div>
+              <div id="country-capital" class="text-sm text-gray-600"></div>
+            </div>
+          </div>
+
+          <div class="md:col-span-2 grid grid-cols-2 md:grid-cols-4 gap-2">
+            <div class="p-3 bg-gray-50 rounded">
+              <div class="text-xs text-gray-500">Population</div>
+              <div id="stat-pop" class="font-semibold">—</div>
+            </div>
+            <div class="p-3 bg-gray-50 rounded">
+              <div class="text-xs text-gray-500">Region</div>
+              <div id="stat-region" class="font-semibold">—</div>
+            </div>
+            <div class="p-3 bg-gray-50 rounded">
+              <div class="text-xs text-gray-500">Area (km²)</div>
+              <div id="stat-area" class="font-semibold">—</div>
+            </div>
+            <div class="p-3 bg-gray-50 rounded">
+              <div class="text-xs text-gray-500">Currency</div>
+              <div id="stat-currency" class="font-semibold">—</div>
+            </div>
+          </div>
+        </div>
+
+        <div id="chart-wrap" class="mt-6 grid grid-cols-1 gap-4">
+          <canvas id="chart-gdp" class="bg-white rounded p-2 shadow"></canvas>
+          <canvas id="chart-pop" class="bg-white rounded p-2 shadow"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right column: indicators + compare -->
+    <aside class="space-y-4">
+      <div class="bg-white p-4 rounded-lg shadow">
+        <h3 class="font-semibold mb-2">Indicators (World Bank)</h3>
+        <div class="grid grid-cols-1 gap-2">
+          <label class="flex items-center gap-2 text-sm">
+            <input type="checkbox" class="indicator-checkbox" data-id="NY.GDP.MKTP.CD" checked>
+            <span>GDP (current US$)</span>
+          </label>
+          <label class="flex items-center gap-2 text-sm">
+            <input type="checkbox" class="indicator-checkbox" data-id="SP.POP.TOTL" checked>
+            <span>Population</span>
+          </label>
+          <label class="flex items-center gap-2 text-sm">
+            <input type="checkbox" class="indicator-checkbox" data-id="IT.NET.USER.ZS" checked>
+            <span>Internet users (% population)</span>
+          </label>
+          <label class="flex items-center gap-2 text-sm">
+            <input type="checkbox" class="indicator-checkbox" data-id="SP.DYN.LE00.IN" checked>
+            <span>Life expectancy</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="bg-white p-4 rounded-lg shadow">
+        <h3 class="font-semibold mb-2">Compare</h3>
+        <p class="text-sm text-gray-600 mb-2">Pick another country to overlay on charts</p>
+        <select id="compare-select" class="p-2 rounded text-black w-full">
+          <option value="">— pick country —</option>
+        </select>
+        <div class="mt-3 flex gap-2">
+          <button id="apply-compare" class="px-3 py-2 bg-indigo-600 text-white rounded">Apply</button>
+          <button id="clear-compare" class="px-3 py-2 border rounded">Clear</button>
+        </div>
+      </div>
+
+      <div class="bg-white p-4 rounded-lg shadow text-sm text-gray-600">
+        <div><strong>Sources:</strong></div>
+        <ul class="list-disc ml-5 mt-2">
+          <li>REST Countries (https://restcountries.com)</li>
+          <li>World Bank API (https://api.worldbank.org)</li>
+          <li>Leaflet & Chart.js</li>
+        </ul>
+      </div>
+    </aside>
+  </main>
+
+  <footer class="text-center p-6 text-sm text-gray-600">Built with ❤️ by you • Cached in localStorage for performance</footer>
+
+<script>
+/* -----------------------------
+   World Data Atlas - single-file app
+   - interactive map with Leaflet (markers at capital/country location)
+   - REST Countries: https://restcountries.com/v3.1/all
+   - World Bank: https://api.worldbank.org/v2/country/{code}/indicator/{indicator}?format=json&per_page=1000
+   - caching in localStorage (7 days)
+   ----------------------------- */
+
+const REST_ALL = "https://restcountries.com/v3.1/all";
+const WB_BASE = "https://api.worldbank.org/v2";
+const CACHE_PREFIX = "wdat:";
+const CACHE_TTL = 1000 * 60 * 60 * 24 * 7; // 7 days
+
+const mapEl = document.getElementById("map");
+const countrySelect = document.getElementById("country-select");
+const compareSelect = document.getElementById("compare-select");
+const searchInput = document.getElementById("search");
+const panelCountry = document.getElementById("panel-country");
+const panelSub = document.getElementById("panel-sub");
+const flagImg = document.getElementById("flag");
+const countryNameEl = document.getElementById("country-name");
+const countryCapitalEl = document.getElementById("country-capital");
+const statPop = document.getElementById("stat-pop");
+const statRegion = document.getElementById("stat-region");
+const statArea = document.getElementById("stat-area");
+const statCurrency = document.getElementById("stat-currency");
+const lastUpdatedEl = document.getElementById("last-updated");
+const compareToggleBtn = document.getElementById("compare-toggle");
+const applyCompareBtn = document.getElementById("apply-compare");
+const clearCompareBtn = document.getElementById("clear-compare");
+const indicatorCheckboxes = document.querySelectorAll(".indicator-checkbox");
+
+let countries = []; // REST countries raw
+let markers = []; // leaflet markers
+let map;
+let selected = null; // selected country object
+let compareCountry = null;
+let chartGDP, chartPOP;
+
+async function cacheGet(key) {
+  try {
+    const raw = localStorage.getItem(CACHE_PREFIX + key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (Date.now() - parsed.ts > CACHE_TTL) {
+      localStorage.removeItem(CACHE_PREFIX + key);
+      return null;
+    }
+    return parsed.v;
+  } catch { return null; }
+}
+function cacheSet(key, value) {
+  try { localStorage.setItem(CACHE_PREFIX + key, JSON.stringify({ts: Date.now(), v: value})); } catch {}
+}
+function isoCodeNormalized(c) {
+  // ensure ISO2 uppercase
+  if (!c) return "";
+  return c.length === 2 ? c.toUpperCase() : c;
+}
+
+/* --------------------------
+   Fetch REST Countries (all) and init map + selects
+   -------------------------- */
+async function loadCountries() {
+  const cached = await cacheGet("rest_all");
+  if (cached) { countries = cached; initUI(); return; }
+
+  const res = await fetch(REST_ALL);
+  if (!res.ok) throw new Error("Failed to fetch countries");
+  const json = await res.json();
+  countries = json.map(c => {
+    // normalize fields we use
+    const cca2 = c.cca2 || (c.cioc && c.cioc.slice(0,2).toUpperCase()) || "";
+    const cca3 = c.cca3 || "";
+    const name = c.name?.common || c.name || "Unknown";
+    const nativeName = (c.name?.nativeName && Object.values(c.name.nativeName)[0]?.common) || "";
+    const capital = Array.isArray(c.capital) ? c.capital[0] : (c.capital || "");
+    const latlng = c.capitalInfo?.latlng?.length ? c.capitalInfo.latlng : (Array.isArray(c.latlng) ? c.latlng : []);
+    const region = c.region || "";
+    const area = c.area || null;
+    const population = c.population || null;
+    const flag = c.flags?.svg || c.flags?.png || "";
+    const currencies = c.currencies ? Object.values(c.currencies).map(x => x.name + " (" + (x.symbol || "") + ")").join(", ") : "";
+    return { cca2, cca3, name, nativeName, capital, latlng, region, area, population, flag, currencies };
+  }).filter(Boolean).sort((a,b)=>a.name.localeCompare(b.name));
+
+  cacheSet("rest_all", countries);
+  initUI();
+}
+
+/* --------------------------
+   Init Leaflet map + markers
+   -------------------------- */
+function initMap() {
+  map = L.map('map', { worldCopyJump: true }).setView([20, 0], 2);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 8,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+}
+
+function initMarkers() {
+  // clear old
+  markers.forEach(m => map.removeLayer(m));
+  markers = [];
+
+  countries.forEach(c => {
+    // some countries have no latlng; skip
+    if (!c.latlng || c.latlng.length < 2) return;
+    const marker = L.marker([c.latlng[0], c.latlng[1]], { title: c.name });
+    marker.on('click', () => {
+      selectByCca2(c.cca2);
+      // pan gently
+      map.panTo([c.latlng[0], c.latlng[1]], {animate:true});
+    });
+    marker.addTo(map);
+    markers.push(marker);
+  });
+}
+
+/* --------------------------
+   Populate select boxes
+   -------------------------- */
+function initSelects() {
+  countrySelect.innerHTML = "<option value=''>— choose country —</option>";
+  compareSelect.innerHTML = "<option value=''>— pick country —</option>";
+  countries.forEach(c => {
+    const o = document.createElement("option"); o.value = c.cca2; o.textContent = c.name + (c.capital ? " — " + c.capital : "");
+    countrySelect.appendChild(o);
+    const o2 = o.cloneNode(true);
+    compareSelect.appendChild(o2);
+  });
+}
+
+/* --------------------------
+   Wire UI events
+   -------------------------- */
+function initUI() {
+  initMap();
+  initMarkers();
+  initSelects();
+  hookEvents();
+  // show brief last updated if cached
+  const hasCache = Object.keys(localStorage).some(k=>k.startsWith(CACHE_PREFIX));
+  lastUpdatedEl.textContent = hasCache ? "Using cached API results" : "Data freshly fetched";
+}
+
+function hookEvents() {
+  countrySelect.addEventListener('change', e=> {
+    if (!e.target.value) return;
+    selectByCca2(e.target.value);
+  });
+
+  compareSelect.addEventListener('change', e => {
+    // nothing immediate
+  });
+
+  searchInput.addEventListener('input', debounce((e) => {
+    const q = (e.target.value || "").toLowerCase().trim();
+    filterSelects(q);
+  }, 200));
+
+  compareToggleBtn.addEventListener('click', () => {
+    const el = compareSelect;
+    if (el.style.display === 'none' || !el.style.display) {
+      el.style.display = 'block';
+      compareToggleBtn.textContent = 'Compare: On';
+    } else {
+      el.style.display = 'none';
+      compareToggleBtn.textContent = 'Compare';
+    }
+  });
+
+  applyCompareBtn.addEventListener('click', () => {
+    const val = compareSelect.value;
+    if (!val) { alert("Pick a country to compare."); return; }
+    if (!selected) { alert("Select a base country first."); return; }
+    if (val === selected.cca2) { alert("Pick a different country to compare."); return; }
+    selectCompare(val);
+  });
+
+  clearCompareBtn.addEventListener('click', () => {
+    compareCountry = null;
+    renderCharts(); // re-render without compare overlay
+  });
+}
+
+/* --------------------------
+   Helpers: select/filter countries
+   -------------------------- */
+function filterSelects(q) {
+  // filter selects by name/code/capital
+  Array.from(countrySelect.options).forEach(opt => {
+    const txt = opt.textContent.toLowerCase();
+    opt.hidden = q && !txt.includes(q);
+  });
+  Array.from(compareSelect.options).forEach(opt => {
+    const txt = opt.textContent.toLowerCase();
+    opt.hidden = q && !txt.includes(q);
+  });
+}
+
+function selectByCca2(code) {
+  const cca2 = isoCodeNormalized(code);
+  const c = countries.find(x => x.cca2 === cca2);
+  if (!c) return alert("Country not found");
+  selected = c;
+  // update UI
+  showCountryCard(c);
+  // fetch indicators & render
+  fetchAndRenderIndicators(c);
+}
+
+/* --------------------------
+   Country card
+   -------------------------- */
+function showCountryCard(c) {
+  panelCountry.textContent = c.name;
+  panelSub.textContent = c.capital ? `${c.capital} — ${c.region}` : c.region;
+  if (c.flag) { flagImg.src = c.flag; flagImg.classList.remove('hidden'); } else { flagImg.classList.add('hidden'); }
+  countryNameEl.textContent = c.name;
+  countryCapitalEl.textContent = c.capital ? ("Capital: " + c.capital) : "No capital listed";
+  statPop.textContent = c.population ? numberWithCommas(c.population) : "—";
+  statRegion.textContent = c.region || "—";
+  statArea.textContent = c.area ? numberWithCommas(c.area) : "—";
+  statCurrency.textContent = c.currencies || "—";
+}
+
+/* --------------------------
+   World Bank: fetch indicator timeseries for a country
+   indicator codes examples:
+     NY.GDP.MKTP.CD (GDP current US$)
+     SP.POP.TOTL (Population)
+     IT.NET.USER.ZS (Internet users %)
+     SP.DYN.LE00.IN (Life expectancy at birth)
+   -------------------------- */
+async function fetchIndicatorTimeseries(countryCca2, indicator, perPage=200) {
+  const code = isoCodeNormalized(countryCca2);
+  const cacheKey = `wb:${code}:${indicator}`;
+  const cached = await cacheGet(cacheKey);
+  if (cached) return cached;
+
+  // World Bank accepts ISO2 or ISO3 - we'll pass ISO2 uppercase
+  const endpoint = `${WB_BASE}/country/${code}/indicator/${indicator}?format=json&per_page=${perPage}`;
+  try {
+    const res = await fetch(endpoint);
+    if (!res.ok) throw new Error("WB fetch failed");
+    const json = await res.json();
+    // JSON shape: [meta, dataArray]
+    const data = Array.isArray(json) && json.length > 1 ? json[1] : [];
+    // map year -> value (filter null)
+    const parsed = data
+      .filter(d => d.value !== null && d.date)
+      .map(d => ({ year: Number(d.date), value: Number(d.value) }))
+      .sort((a,b)=>a.year - b.year);
+    cacheSet(cacheKey, parsed);
+    return parsed;
+  } catch (err) {
+    // return empty array on failure
+    cacheSet(cacheKey, []);
+    return [];
+  }
+}
+
+/* --------------------------
+   Fetch & Render all indicators for a country
+   -------------------------- */
+async function fetchAndRenderIndicators(country) {
+  // show loading states
+  chartGDP && chartGDP.destroy();
+  chartPOP && chartPOP.destroy();
+  document.getElementById('chart-wrap').classList.add('opacity-60');
+
+  // indicators chosen (base)
+  // We'll always fetch GDP and Population for charts; others may be toggled on/off and overlayed later
+  const baseIndicators = {
+    gdp: "NY.GDP.MKTP.CD",
+    pop: "SP.POP.TOTL"
+  };
+
+  // read indicator checkboxes for extra pulls if necessary
+  const checked = Array.from(indicatorCheckboxes).filter(ch=>ch.checked).map(ch=>ch.dataset.id);
+
+  // fetch timeseries concurrently
+  const [gdpTS, popTS, internetTS, lifeTS] = await Promise.all([
+    fetchIndicatorTimeseries(country.cca2, baseIndicators.gdp),
+    fetchIndicatorTimeseries(country.cca2, baseIndicators.pop),
+    checked.includes("IT.NET.USER.ZS") ? fetchIndicatorTimeseries(country.cca2, "IT.NET.USER.ZS") : Promise.resolve([]),
+    checked.includes("SP.DYN.LE00.IN") ? fetchIndicatorTimeseries(country.cca2, "SP.DYN.LE00.IN") : Promise.resolve([])
+  ]);
+
+  // optionally fetch compare country series
+  let compareData = null;
+  if (compareCountry) {
+    const [cgdpTS, cpopTS] = await Promise.all([
+      fetchIndicatorTimeseries(compareCountry.cca2, baseIndicators.gdp),
+      fetchIndicatorTimeseries(compareCountry.cca2, baseIndicators.pop)
+    ]);
+    compareData = { cgdpTS, cpopTS };
+  }
+
+  // render charts
+  renderCharts({ gdpTS, popTS, internetTS, lifeTS, compareData, country, compareCountry });
+
+  document.getElementById('chart-wrap').classList.remove('opacity-60');
+  lastUpdatedEl.textContent = "Updated " + new Date().toLocaleString();
+}
+
+/* --------------------------
+   Render Chart.js charts
+   -------------------------- */
+function renderCharts(opts = {}) {
+  const { gdpTS = [], popTS = [], internetTS = [], lifeTS = [], compareData = null, country = selected, compareCountry: cmp = compareCountry } = opts;
+
+  // Build x-axis years union from available series (last 25 years ideally)
+  const yearsSet = new Set();
+  [gdpTS, popTS, internetTS, lifeTS].forEach(arr => arr.forEach(d => yearsSet.add(d.year)));
+  if (compareData && compareData.cgdpTS) compareData.cgdpTS.forEach(d=>yearsSet.add(d.year));
+  if (compareData && compareData.cpopTS) compareData.cpopTS.forEach(d=>yearsSet.add(d.year));
+  const years = Array.from(yearsSet).sort((a,b)=>a-b).slice(-30); // last up to 30 points
+
+  // helper to create value array aligned to years
+  const align = (ts) => years.map(y => {
+    const found = ts.find(d => d.year === y);
+    return found ? Number(found.value) : null;
+  });
+
+  const gdpValues = align(gdpTS);
+  const popValues = align(popTS);
+  const inetValues = align(internetTS);
+  const lifeValues = align(lifeTS);
+
+  // compare arrays
+  let cgdpValues = null, cpopValues = null;
+  if (compareData) {
+    cgdpValues = align(compareData.cgdpTS || []);
+    cpopValues = align(compareData.cpopTS || []);
+  }
+
+  // destroy existing charts if any
+  if (chartGDP) { try{ chartGDP.destroy(); } catch{} }
+  if (chartPOP) { try{ chartPOP.destroy(); } catch{} }
+
+  // GDP chart (log scale optional; here display as linear but format)
+  const gdpCtx = document.getElementById('chart-gdp').getContext('2d');
+  chartGDP = new Chart(gdpCtx, {
+    type: 'line',
+    data: {
+      labels: years,
+      datasets: [
+        {
+          label: `${country.name} — GDP (US$)`,
+          data: gdpValues,
+          borderColor: '#4f46e5',
+          backgroundColor: 'rgba(79,70,229,0.06)',
+          yAxisID: 'y',
+          spanGaps: true,
+          tension: 0.2
+        },
+        ...(compareData && cgdpValues ? [{
+          label: `${cmp.name} — GDP (US$)`,
+          data: cgdpValues,
+          borderColor: '#ef4444',
+          backgroundColor: 'rgba(239,68,68,0.06)',
+          yAxisID: 'y',
+          spanGaps: true,
+          tension: 0.2
+        }] : [])
+      ]
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${formatNumber(ctx.parsed.y)}` } },
+        legend: { position: 'top' }
+      },
+      scales: {
+        x: { title: { display: true, text: 'Year' } },
+        y: { title: { display: true, text: 'US$' }, ticks: { callback: v => abbreviateNumber(v) } }
+      }
+    }
+  });
+
+  // Population chart
+  const popCtx = document.getElementById('chart-pop').getContext('2d');
+  chartPOP = new Chart(popCtx, {
+    type: 'line',
+    data: {
+      labels: years,
+      datasets: [
+        { label: `${country.name} — Population`, data: popValues, borderColor: '#059669', backgroundColor: 'rgba(5,150,105,0.06)', spanGaps: true, tension: 0.2 },
+        ...(compareData && cpopValues ? [{ label: `${cmp.name} — Population`, data: cpopValues, borderColor: '#d97706', backgroundColor: 'rgba(217,119,6,0.06)', spanGaps: true, tension: 0.2 }] : [])
+      ]
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${formatNumber(ctx.parsed.y)}` } }, legend: { position: 'top' }},
+      scales: { x: { title: { display: true, text: 'Year' } }, y: { title: { display: true, text: 'People' }, ticks: { callback: v => abbreviateNumber(v) } } }
+    }
+  });
+}
+
+/* --------------------------
+   Compare pick
+   -------------------------- */
+function selectCompare(cca2) {
+  const code = isoCodeNormalized(cca2);
+  const c = countries.find(x => x.cca2 === code);
+  if (!c) return alert("Compare country not found");
+  compareCountry = c;
+  // fetch and re-render indicators for base selected (it will fetch compare series inside)
+  if (!selected) {
+    alert("Select a base country first.");
+    return;
+  }
+  fetchAndRenderIndicators(selected);
+}
+
+/* --------------------------
+   Utilities
+   -------------------------- */
+function numberWithCommas(x) {
+  if (x === null || x === undefined) return "—";
+  return x.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+function abbreviateNumber(v) {
+  if (v === null || v === undefined) return "";
+  const abs = Math.abs(v);
+  if (abs >= 1e12) return (v/1e12).toFixed(1) + "T";
+  if (abs >= 1e9) return (v/1e9).toFixed(1) + "B";
+  if (abs >= 1e6) return (v/1e6).toFixed(1) + "M";
+  if (abs >= 1e3) return (v/1e3).toFixed(1) + "K";
+  return v.toString();
+}
+function formatNumber(v) { return v === null || v === undefined ? "—" : numberWithCommas(Math.round(v)); }
+function debounce(fn, wait=200){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), wait); }; }
+
+/* --------------------------
+   Boot
+   -------------------------- */
+(async function init(){
+  try {
+    await loadCountries();
+  } catch (err) {
+    console.error(err);
+    alert("Failed to initialize app: " + err.message);
+  }
+})();
+
+</script>
+</body>
+</html>
