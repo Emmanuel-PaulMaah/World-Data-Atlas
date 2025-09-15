@@ -144,7 +144,7 @@
    - caching in localStorage (7 days)
    ----------------------------- */
 
-const REST_ALL = "https://restcountries.com/v3.1/all";
+const REST_ALL = "https://restcountries.com/v3.1/all?fields=cca2,cca3,name,capital,latlng,region,area,population,flags,currencies,capitalInfo";
 const WB_BASE = "https://api.worldbank.org/v2";
 const CACHE_PREFIX = "wdat:";
 const CACHE_TTL = 1000 * 60 * 60 * 24 * 7; // 7 days
